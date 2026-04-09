@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="CARS Dashboard – Clinic Appointment and Record System"/>
+  <title>CARS – Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css"/>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════
+     MOBILE TOPBAR  (shown on small screens instead of sidebar)
+══════════════════════════════════════════════════════════════ -->
+<div class="topbar">
+  <span style="font-weight:800;font-size:1rem;">🏥 CARS</span>
+  <div id="topbar-role-badge"></div>
+</div>
+
+<div class="app">
+
+  <!-- ══════════════════════════════════════════════════════════
+       SIDEBAR
+  ══════════════════════════════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-icon">🏥</div>
+      <div class="logo-text">
+        <div class="title">CARS</div>
+        <div class="sub">Clinic System</div>
+      </div>
+    </div>
+    <!-- Nav injected by buildNav() -->
+    <nav class="nav" id="main-nav"></nav>
+    <!-- User info + logout -->
+    <div class="sidebar-user">
+      <div class="user-chip">
+        <div class="avatar" id="av">?</div>
+        <div class="user-info-text">
+          <div class="name"  id="uname">…</div>
+          <div class="email" id="uemail">—</div>
+        </div>
+      </div>
+      <button class="logout-btn" onclick="logout()">🚪 Sign Out</button>
+    </div>
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════
+       MAIN CONTENT  – sections injected by buildSections()
+  ══════════════════════════════════════════════════════════ -->
+  <main class="main" id="main-content"></main>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL: Create Doctor  (Admin only)
+══════════════════════════════════════════════════════════════ -->
+<div id="modal-create-doctor" class="modal-overlay">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-create-doctor')">✕</button>
+    <h3>👨‍⚕️ Create New Doctor</h3>
+    <div id="modal-doctor-msg" class="msg"></div>
+    <form onsubmit="createDoctor(event)">
+      <div class="form-group"><label>Full Name</label>
+        <input type="text" id="d-name" placeholder="Dr. Jane Smith" required/></div>
+      <div class="form-group"><label>Email Address</label>
+        <input type="email" id="d-email" placeholder="dr.jane@cars.com" required/></div>
+      <div class="form-group"><label>Phone (10 digits)</label>
+        <input type="tel" id="d-phone" placeholder="9876543210" required pattern="[0-9]{10}"/></div>
+      <div class="form-group"><label>Password</label>
+        <input type="password" id="d-pass" placeholder="Min 8 · Upper · Lower · Digit · Special" required/></div>
+      <div class="form-group"><label>Specialization</label>
+        <input type="text" id="d-spec" placeholder="Cardiologist" required/></div>
+      <div class="form-group"><label>Bio (optional)</label>
+        <textarea id="d-bio" placeholder="Brief professional summary…"></textarea></div>
+      <button type="submit" class="btn btn-primary" id="d-btn">Create Doctor</button>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL: Update Appointment Status  (Doctor)
+══════════════════════════════════════════════════════════════ -->
+<div id="modal-status" class="modal-overlay">
+  <div class="modal" style="max-width:360px">
+    <button class="modal-close" onclick="closeModal('modal-status')">✕</button>
+    <h3>⚙ Update Appointment</h3>
+    <p id="status-apt-info" style="color:var(--text-muted);font-size:0.88rem;margin-bottom:20px">—</p>
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <button class="btn btn-accent"  onclick="doUpdateStatus('Confirmed')">✅ Confirm</button>
+      <button class="btn btn-primary" onclick="doUpdateStatus('Completed')">🏁 Mark Completed</button>
+      <button class="btn" style="background:rgba(239,68,68,.15);color:var(--danger);border:1px solid rgba(239,68,68,.3)"
+              onclick="doUpdateStatus('Cancelled')">❌ Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     MODAL: Delete Doctor confirm  (Admin)
+══════════════════════════════════════════════════════════════ -->
+<div id="modal-del-doctor" class="modal-overlay">
+  <div class="modal" style="max-width:340px">
+    <button class="modal-close" onclick="closeModal('modal-del-doctor')">✕</button>
+    <h3>🗑 Delete Doctor?</h3>
+    <p id="del-doc-info" style="color:var(--text-muted);font-size:0.88rem;margin-bottom:20px">—</p>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-ghost" style="flex:1" onclick="closeModal('modal-del-doctor')">Cancel</button>
+      <button class="btn" style="flex:1;background:rgba(239,68,68,.15);color:var(--danger);border:1px solid rgba(239,68,68,.3)"
+              onclick="confirmDeleteDoctor()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════════
+//  CARS DASHBOARD  |  Complete Role-Based SPA
+//  Roles: Admin · Doctor · Patient
+//  Backend: http://localhost:5000/api/v1
+// ════════════════════════════════════════════════════════════════════════
+
+const API   = 'http://localhost:5000/api/v1';
+const token = localStorage.getItem('token');
+const user  = JSON.parse(localStorage.getItem('user') || 'null');
+// Normalise role — trim whitespace just in case
+const role  = (user?.role || '').trim();  // 'Admin' | 'Doctor' | 'Patient'
+
+// Guard: no valid session → back to login
+if (!token || !user) { location.href = '/index.html'; }
+
+// Global state
+let _statusAptId  = null;
+let _delDoctorId  = null;
+let _allDoctors   = [];
+let _myApts       = [];
+let _allApts      = [];
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 1 ▸ USER INFO
+// ══════════════════════════════════════════════════════════════════════
+function populateUserInfo() {
+  const initial = (user.fullName || 'U').charAt(0).toUpperCase();
+  document.getElementById('av').textContent     = initial;
+  document.getElementById('uname').textContent  = user.fullName  || 'User';
+  document.getElementById('uemail').textContent = user.email     || '—';
+  const tb = document.getElementById('topbar-role-badge');
+  if (tb) tb.innerHTML = roleBadge(role);
+}
+
+function roleBadge(r) {
+  const icon = { Admin:'👑', Doctor:'🩺', Patient:'🧑' }[r] || '👤';
+  return `<span class="role-badge ${r.toLowerCase()}">${icon} ${r}</span>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 2 ▸ NAVIGATION  (role-filtered)
+//
+//  Each item has a 'roles' array — only shown to those roles.
+//  isLink items open a new tab instead of switching sections.
+// ══════════════════════════════════════════════════════════════════════
+const NAV = [
+  { id:'overview',     label:'Overview',          emoji:'🏠', roles:['Admin','Doctor','Patient'],
+    icon:'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
+  { id:'doctors',      label:'Doctors',            emoji:'👨‍⚕️', roles:['Admin','Doctor','Patient'],
+    icon:'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0' },
+  // Patient-only: book appointment
+  { id:'book',         label:'Book Appointment',   emoji:'📅', roles:['Patient'],
+    icon:'M12 4v16m8-8H4' },
+  // Doctor+Patient: their own appointment queue
+  { id:'appointments', label:'My Appointments',    emoji:'📋', roles:['Patient','Doctor'],
+    icon:'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+  // Admin: system-wide view of all appointments
+  { id:'all-apts',     label:'All Appointments',   emoji:'🗂',  roles:['Admin'],
+    icon:'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
+  // All roles: medical records
+  { id:'records',      label:'Medical Records',    emoji:'📄', roles:['Admin','Doctor','Patient'],
+    icon:'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+  // Admin+Doctor: external link to Swagger API docs
+  { id:'swagger',      label:'API Docs',           emoji:'📖', roles:['Admin','Doctor'],
+    isLink:true,
+    icon:'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4' },
+];
+
+function buildNav() {
+  const nav = document.getElementById('main-nav');
+  nav.innerHTML = `<div style="padding:10px 10px 6px">${roleBadge(role)}</div>`;
+  NAV.filter(n => n.roles.includes(role)).forEach(n => {
+    const btn = document.createElement('button');
+    btn.className      = `nav-item${n.id === 'overview' ? ' active' : ''}`;
+    btn.dataset.section = n.id;
+    btn.innerHTML = `
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${n.icon}"/>
+      </svg>
+      ${n.emoji} ${n.label}`;
+    btn.onclick = n.isLink
+      ? () => window.open('/swagger', '_blank')
+      : () => navigate(n.id);
+    nav.appendChild(btn);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 3 ▸ SECTIONS HTML  (role-specific page content)
+// ══════════════════════════════════════════════════════════════════════
+function buildSections() {
+  const main = document.getElementById('main-content');
+  let h = '';
+
+  /* ── OVERVIEW (all roles) ────────────────────────────────────── */
+  h += `
+  <div id="sec-overview" class="section active">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Good ${timeGreeting()}, ${firstName()}! 👋</div>
+        <div class="page-sub">Here's a snapshot of your CARS dashboard.</div>
+      </div>
+      ${roleBadge(role)}
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(13,148,136,.15)">👨‍⚕️</div>
+        <div><div class="num" id="stat-docs">—</div><div class="lbl">Total Doctors</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(99,102,241,.15)">📅</div>
+        <div><div class="num" id="stat-apts">—</div>
+          <div class="lbl">${role==='Admin'?'All Appointments':'My Appointments'}</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(245,158,11,.15)">📄</div>
+        <div><div class="num" id="stat-recs">—</div><div class="lbl">Medical Records</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><h3><span class="h-icon">⚡</span> Quick Actions</h3></div>
+      <div class="quick-actions">
+        ${role==='Patient' ? `<button class="btn-sm prim" onclick="navigate('book')">📅 Book Appointment</button>` : ''}
+        ${role==='Admin'   ? `<button class="btn-sm accent" onclick="openModal('modal-create-doctor')">➕ Create Doctor</button>` : ''}
+        ${role!=='Patient' ? `<button class="btn-sm sec" onclick="navigate('appointments')">📋 Appointments</button>` : ''}
+        <button class="btn-sm sec" onclick="navigate('doctors')">👨‍⚕️ Browse Doctors</button>
+        <button class="btn-sm sec" onclick="navigate('records')">📄 Medical Records</button>
+        ${role!=='Patient' ? `<button class="btn-sm sec" onclick="window.open('/swagger','_blank')">📖 API Docs</button>` : ''}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3><span class="h-icon">🕑</span> Recent Appointments</h3>
+        <button class="btn-sm sec" onclick="navigate('${role==='Admin'?'all-apts':'appointments'}')">View All →</button>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr>
+          <th>Patient</th><th>Doctor</th><th>Date &amp; Time</th><th>Status</th>
+        </tr></thead>
+        <tbody id="overview-recent-body"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+
+  /* ── DOCTORS (all roles) ─────────────────────────────────────── */
+  h += `
+  <div id="sec-doctors" class="section">
+    <div class="page-header">
+      <div><div class="page-title">👨‍⚕️ Doctors</div>
+        <div class="page-sub">All registered doctors in the system.</div></div>
+      ${role==='Admin' ? `<button class="btn-sm accent" onclick="openModal('modal-create-doctor')">➕ Create Doctor</button>` : ''}
+    </div>
+    <div class="search-wrap">
+      <span class="s-icon">🔍</span>
+      <input type="text" id="doctor-search" placeholder="Search by name or specialization…"
+             oninput="filterDoctors(this.value)"/>
+    </div>
+    <div class="doctor-grid" id="doctors-grid"><div class="empty">Loading…</div></div>
+  </div>`;
+
+  /* ── BOOK APPOINTMENT (Patient only) ─────────────────────────── */
+  if (role === 'Patient') {
+    h += `
+    <div id="sec-book" class="section">
+      <div class="page-header">
+        <div><div class="page-title">📅 Book Appointment</div>
+          <div class="page-sub">Choose an available doctor and preferred time.</div></div>
+      </div>
+      <div class="card" style="max-width:540px">
+        <div class="card-header"><h3><span class="h-icon">📋</span> New Appointment</h3></div>
+        <div id="book-msg" class="msg"></div>
+        <form onsubmit="bookAppointment(event)">
+          <div class="form-group"><label>Select Doctor</label>
+            <select id="book-doctor" required>
+              <option value="">— Loading available doctors… —</option>
+            </select></div>
+          <div class="form-group"><label>Date &amp; Time</label>
+            <input type="datetime-local" id="book-date" required/></div>
+          <div class="form-group"><label>Reason / Notes (optional)</label>
+            <textarea id="book-notes" placeholder="Briefly describe your symptoms…"></textarea></div>
+          <button type="submit" class="btn btn-primary" id="book-btn">📅 Confirm Booking</button>
+        </form>
+      </div>
+    </div>`;
+  }
+
+  /* ── MY APPOINTMENTS (Patient + Doctor) ──────────────────────── */
+  if (role === 'Patient' || role === 'Doctor') {
+    h += `
+    <div id="sec-appointments" class="section">
+      <div class="page-header">
+        <div><div class="page-title">${role==='Doctor'?'🩺 Patient Appointments':'📋 My Appointments'}</div>
+          <div class="page-sub">${role==='Doctor'
+            ? 'Appointments assigned to you — confirm, complete, or cancel.'
+            : 'All your bookings — upcoming and past.'}</div></div>
+        ${role==='Patient' ? `<button class="btn-sm prim" onclick="navigate('book')">➕ Book New</button>` : ''}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+        <button class="btn-sm sec apt-filter active-filter" data-f="all"       onclick="filterApts('all')">All</button>
+        <button class="btn-sm sec apt-filter"               data-f="pending"   onclick="filterApts('pending')">⏳ Pending</button>
+        <button class="btn-sm sec apt-filter"               data-f="confirmed" onclick="filterApts('confirmed')">✅ Confirmed</button>
+        <button class="btn-sm sec apt-filter"               data-f="completed" onclick="filterApts('completed')">🏁 Completed</button>
+        <button class="btn-sm sec apt-filter"               data-f="cancelled" onclick="filterApts('cancelled')">❌ Cancelled</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table><thead><tr>
+            <th>${role==='Doctor'?'Patient':'Doctor'}</th>
+            <th>Date &amp; Time</th><th>Status</th><th>Notes</th><th>Action</th>
+          </tr></thead>
+          <tbody id="apts-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ── ALL APPOINTMENTS (Admin only) ──────────────────────────── */
+  if (role === 'Admin') {
+    h += `
+    <div id="sec-all-apts" class="section">
+      <div class="page-header">
+        <div><div class="page-title">🗂 All Appointments</div>
+          <div class="page-sub">System-wide view across all patients and doctors.</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
+        <button class="btn-sm sec apt-filter-admin active-filter" data-f="all"       onclick="filterAllApts('all')">All</button>
+        <button class="btn-sm sec apt-filter-admin"               data-f="pending"   onclick="filterAllApts('pending')">⏳ Pending</button>
+        <button class="btn-sm sec apt-filter-admin"               data-f="confirmed" onclick="filterAllApts('confirmed')">✅ Confirmed</button>
+        <button class="btn-sm sec apt-filter-admin"               data-f="completed" onclick="filterAllApts('completed')">🏁 Completed</button>
+        <button class="btn-sm sec apt-filter-admin"               data-f="cancelled" onclick="filterAllApts('cancelled')">❌ Cancelled</button>
+      </div>
+      <div class="card">
+        <div class="table-wrap">
+          <table><thead><tr>
+            <th>Patient</th><th>Doctor</th><th>Date &amp; Time</th><th>Status</th><th>Notes</th>
+          </tr></thead>
+          <tbody id="all-apts-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ── MEDICAL RECORDS (all roles) ─────────────────────────────── */
+  h += `
+  <div id="sec-records" class="section">
+    <div class="page-header">
+      <div><div class="page-title">📄 Medical Records</div>
+        <div class="page-sub">
+          ${role==='Patient'?'Upload and manage your medical documents.'
+            : role==='Doctor'?'Medical documents you have uploaded.'
+            : 'All uploaded medical documents in the system.'}</div></div>
+    </div>
+    <div class="card" style="max-width:560px;margin-bottom:24px">
+      <div class="card-header"><h3><span class="h-icon">📎</span> Upload Document</h3></div>
+      <div id="upload-msg" class="msg"></div>
+      <div class="upload-area" id="drop-zone"
+           onclick="document.getElementById('file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('drag')"
+           ondragleave="this.classList.remove('drag')"
+           ondrop="handleDrop(event)">
+        <div class="upload-icon">📁</div>
+        <p>Click or <strong>drag &amp; drop</strong> a file here</p>
+        <p class="hint">PDF · PNG · JPG · DOCX · Max 10 MB</p>
+      </div>
+      <div class="progress-bar-wrap" id="upload-progress-wrap">
+        <div class="progress-bar" id="upload-progress" style="width:0%"></div>
+      </div>
+      <input type="file" id="file-input" style="display:none"
+             accept=".pdf,.png,.jpg,.jpeg,.docx"
+             onchange="uploadFile(this.files[0])"/>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h3><span class="h-icon">🗃</span> Documents</h3>
+        <button class="btn-sm sec" onclick="loadRecords()">🔄 Refresh</button>
+      </div>
+      <div class="table-wrap">
+        <table><thead><tr>
+          <th>File Name</th><th>Type</th><th>Size</th><th>Uploaded</th><th>Action</th>
+        </tr></thead>
+        <tbody id="records-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+
+  main.innerHTML = h;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 4 ▸ NAVIGATION CONTROLLER
+// ══════════════════════════════════════════════════════════════════════
+function navigate(sec) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  const t = document.getElementById('sec-' + sec);
+  if (t) t.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n =>
+    n.classList.toggle('active', n.dataset.section === sec));
+  // Lazy-load data for the section
+  const loaders = {
+    overview:     loadOverview,
+    doctors:      loadDoctors,
+    appointments: loadMyAppointments,
+    'all-apts':   loadAllAppointments,
+    records:      loadRecords,
+    book:         loadDoctorSelect
+  };
+  loaders[sec]?.();
+}
+
+function logout() { localStorage.clear(); location.href = '/index.html'; }
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 5 ▸ API HELPER
+//  All requests carry the JWT Bearer token.
+//  401 → auto-logout; Network error → friendly message.
+// ══════════════════════════════════════════════════════════════════════
+async function api(path, opts = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer ' + token,
+    ...(opts.headers || {})
+  };
+  if (opts.body instanceof FormData) delete headers['Content-Type'];
+  try {
+    const res = await fetch(API + path, { ...opts, headers });
+    if (res.status === 401) { localStorage.clear(); location.href = '/index.html'; return; }
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: 'Network error – is the server running? ' + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 6 ▸ TOAST NOTIFICATIONS
+// ══════════════════════════════════════════════════════════════════════
+function toast(msg, type = 'success') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.innerHTML = (type==='success'?'✅ ':type==='error'?'❌ ':'ℹ ') + msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity='0';t.style.transform='translateX(30px)';t.style.transition='all .3s'; setTimeout(()=>t.remove(),300); }, 3200);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 7 ▸ MODAL HELPERS
+// ══════════════════════════════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  // Clear any message banners inside
+  document.querySelectorAll(`#${id} .msg`).forEach(m => { m.className='msg'; m.style.display='none'; });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 8 ▸ OVERVIEW  (stat cards + recent appointments table)
+// ══════════════════════════════════════════════════════════════════════
+async function loadOverview() {
+  const aptEp  = role === 'Admin' ? '/Appointments' : '/Appointments/my';
+  const recsEp = '/MedicalRecords/my';
+  // Parallel fetch for performance
+  const [docsR, aptsR, recsR] = await Promise.all([
+    api('/Doctors'), api(aptEp), api(recsEp)
+  ]);
+  document.getElementById('stat-docs').textContent = docsR?.data?.length ?? '—';
+  document.getElementById('stat-apts').textContent = aptsR?.data?.length ?? '—';
+  document.getElementById('stat-recs').textContent = recsR?.data?.length ?? '—';
+
+  // Recent 5 appointments
+  const tb  = document.getElementById('overview-recent-body');
+  const arr = (aptsR?.data || []).slice(0, 5);
+  if (!arr.length) {
+    tb.innerHTML = `<tr><td colspan="4" class="empty"><span class="empty-icon">📅</span><p>No appointments yet.</p></td></tr>`;
+    return;
+  }
+  tb.innerHTML = arr.map(a => `
+    <tr>
+      <td>${a.patientName || a.patientId}</td>
+      <td>${a.doctorName  || a.doctorId}</td>
+      <td style="white-space:nowrap">${fmtDate(a.appointmentDate)}</td>
+      <td><span class="badge-status badge-${(a.status||'').toLowerCase()}">${a.status}</span></td>
+    </tr>`).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 9 ▸ DOCTORS LIST
+//  GET /api/v1/Doctors  (public endpoint — no auth required)
+//  Admin: + Create button + Delete button per card
+//  Patient: + quick "Book" button on each card
+// ══════════════════════════════════════════════════════════════════════
+async function loadDoctors() {
+  const grid = document.getElementById('doctors-grid');
+  grid.innerHTML = `<div class="empty">Loading…</div>`;
+  const d = await api('/Doctors');
+  _allDoctors = d?.data || [];
+  renderDoctors(_allDoctors);
+}
+
+function renderDoctors(list) {
+  const grid = document.getElementById('doctors-grid');
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty"><span class="empty-icon">👨‍⚕️</span><p>No doctors found.</p></div>`;
+    return;
+  }
+  grid.innerHTML = list.map(doc => `
+    <div class="doctor-card">
+      <div class="doc-avatar">${(doc.fullName||'D').charAt(0)}</div>
+      <div class="doc-name">${doc.fullName}</div>
+      <div class="doc-spec">${doc.specialization}</div>
+      <span class="doc-avail ${doc.isAvailable?'avail-yes':'avail-no'}">
+        ${doc.isAvailable?'● Available':'● Unavailable'}
+      </span>
+      ${doc.bio ? `<div class="doc-bio">${doc.bio}</div>` : ''}
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        ${role==='Patient' && doc.isAvailable
+          ? `<button class="btn-sm prim"
+               onclick="navigate('book');setTimeout(()=>{const s=document.getElementById('book-doctor');if(s)s.value='${doc.id}'},400)">
+               📅 Book
+             </button>` : ''}
+        ${role==='Admin'
+          ? `<button class="btn-sm danger" onclick="openDelDoctorModal('${doc.id}','${doc.fullName}')">🗑 Delete</button>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function filterDoctors(q) {
+  const lq = q.toLowerCase().trim();
+  renderDoctors(lq ? _allDoctors.filter(d =>
+    d.fullName.toLowerCase().includes(lq) ||
+    d.specialization.toLowerCase().includes(lq)) : _allDoctors);
+}
+
+// Admin: delete doctor
+function openDelDoctorModal(id, name) {
+  _delDoctorId = id;
+  document.getElementById('del-doc-info').textContent = `Delete Dr. ${name}? This cannot be undone.`;
+  openModal('modal-del-doctor');
+}
+
+async function confirmDeleteDoctor() {
+  if (!_delDoctorId) return;
+  closeModal('modal-del-doctor');
+  const d = await api(`/Doctors/${_delDoctorId}`, { method: 'DELETE' });
+  if (d?.success) { toast('Doctor deleted.'); loadDoctors(); }
+  else toast(d?.message || 'Delete failed.', 'error');
+  _delDoctorId = null;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 10 ▸ MY APPOINTMENTS  (Patient + Doctor)
+//  GET /api/v1/Appointments/my
+//  Doctor: sees appointments where Doctor.UserId = logged-in userId
+//  Patient: sees appointments where PatientId = logged-in userId
+// ══════════════════════════════════════════════════════════════════════
+async function loadMyAppointments() {
+  const tb = document.getElementById('apts-body');
+  if (!tb) return;
+  tb.innerHTML = `<tr><td colspan="5" class="empty">Loading…</td></tr>`;
+  const d = await api('/Appointments/my');
+  _myApts = d?.data || [];
+  renderMyApts(_myApts);
+}
+
+function renderMyApts(list) {
+  const tb = document.getElementById('apts-body');
+  if (!tb) return;
+  if (!list.length) {
+    tb.innerHTML = `<tr><td colspan="5" class="empty"><span class="empty-icon">📋</span><p>No appointments found.</p></td></tr>`;
+    return;
+  }
+  tb.innerHTML = list.map(a => `
+    <tr>
+      <td><div style="font-weight:600">
+        ${role==='Doctor' ? (a.patientName||a.patientId) : (a.doctorName||a.doctorId)}
+      </div></td>
+      <td style="white-space:nowrap">${fmtDate(a.appointmentDate)}</td>
+      <td><span class="badge-status badge-${(a.status||'').toLowerCase()}">${a.status}</span></td>
+      <td style="max-width:160px;color:var(--text-muted);font-size:.83rem">${a.notes||'—'}</td>
+      <td><div class="td-actions">${aptRowActions(a)}</div></td>
+    </tr>`).join('');
+}
+
+// Build action buttons per appointment row based on role + status
+function aptRowActions(a) {
+  if (role === 'Doctor') {
+    if (a.status === 'Pending' || a.status === 'Confirmed') {
+      return `<button class="btn-sm prim"
+        onclick="openStatusModal('${a.id}','${(a.patientName||'').replace(/'/g,'')} — ${fmtDate(a.appointmentDate)}')">
+        ⚙ Update</button>`;
+    }
+  }
+  if (role === 'Patient') {
+    if (a.status === 'Pending' || a.status === 'Confirmed') {
+      return `<button class="btn-sm danger" onclick="cancelApt('${a.id}')">❌ Cancel</button>`;
+    }
+  }
+  return '<span style="color:var(--text-dim);font-size:.8rem">—</span>';
+}
+
+// Status filter pills (My Appointments)
+function filterApts(f) {
+  document.querySelectorAll('.apt-filter').forEach(b =>
+    b.classList.toggle('active-filter', b.dataset.f === f));
+  renderMyApts(f === 'all' ? _myApts : _myApts.filter(a => a.status?.toLowerCase() === f));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 11 ▸ ALL APPOINTMENTS  (Admin only)
+//  GET /api/v1/Appointments  — requires Admin role
+// ══════════════════════════════════════════════════════════════════════
+async function loadAllAppointments() {
+  const tb = document.getElementById('all-apts-body');
+  if (!tb) return;
+  tb.innerHTML = `<tr><td colspan="5" class="empty">Loading…</td></tr>`;
+  const d = await api('/Appointments');
+  _allApts = d?.data || [];
+  renderAllApts(_allApts);
+}
+
+function renderAllApts(list) {
+  const tb = document.getElementById('all-apts-body');
+  if (!tb) return;
+  if (!list.length) {
+    tb.innerHTML = `<tr><td colspan="5" class="empty"><span class="empty-icon">🗂</span><p>No appointments in the system.</p></td></tr>`;
+    return;
+  }
+  tb.innerHTML = list.map(a => `
+    <tr>
+      <td><div style="font-weight:600">${a.patientName||a.patientId}</div></td>
+      <td><div style="font-weight:600">${a.doctorName ||a.doctorId}</div></td>
+      <td style="white-space:nowrap">${fmtDate(a.appointmentDate)}</td>
+      <td><span class="badge-status badge-${(a.status||'').toLowerCase()}">${a.status}</span></td>
+      <td style="max-width:160px;color:var(--text-muted);font-size:.83rem">${a.notes||'—'}</td>
+    </tr>`).join('');
+}
+
+function filterAllApts(f) {
+  document.querySelectorAll('.apt-filter-admin').forEach(b =>
+    b.classList.toggle('active-filter', b.dataset.f === f));
+  renderAllApts(f === 'all' ? _allApts : _allApts.filter(a => a.status?.toLowerCase() === f));
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 12 ▸ APPOINTMENT ACTIONS
+// ══════════════════════════════════════════════════════════════════════
+
+// Patient cancels their appointment
+// PATCH /api/v1/Appointments/{id}/cancel
+async function cancelApt(id) {
+  if (!confirm('Cancel this appointment?')) return;
+  const d = await api(`/Appointments/${id}/cancel`, { method:'PATCH', body:'{}' });
+  if (d?.success) { toast('Appointment cancelled.'); loadMyAppointments(); }
+  else toast(d?.message || 'Failed.', 'error');
+}
+
+// Doctor opens status modal
+function openStatusModal(id, info) {
+  _statusAptId = id;
+  document.getElementById('status-apt-info').textContent = info;
+  openModal('modal-status');
+}
+
+// Doctor submits status change
+// PATCH /api/v1/Appointments/{id}/status
+async function doUpdateStatus(status) {
+  if (!_statusAptId) return;
+  const id = _statusAptId;
+  closeModal('modal-status');
+  const d = await api(`/Appointments/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status })
+  });
+  if (d?.success) { toast(`Status → ${status}`); loadMyAppointments(); }
+  else toast(d?.message || 'Update failed.', 'error');
+  _statusAptId = null;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 13 ▸ BOOK APPOINTMENT  (Patient only)
+//  POST /api/v1/Appointments
+// ══════════════════════════════════════════════════════════════════════
+async function loadDoctorSelect() {
+  const sel = document.getElementById('book-doctor');
+  if (!sel) return;
+  // Set minimum datetime to now (no past bookings)
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('book-date').min = now.toISOString().slice(0, 16);
+
+  const d = await api('/Doctors');
+  const avail = (d?.data || []).filter(doc => doc.isAvailable);
+  sel.innerHTML = avail.length
+    ? '<option value="">— Select a doctor —</option>' +
+        avail.map(doc => `<option value="${doc.id}">${doc.fullName} — ${doc.specialization}</option>`).join('')
+    : '<option value="">No doctors currently available</option>';
+}
+
+async function bookAppointment(e) {
+  e.preventDefault();
+  const btn  = document.getElementById('book-btn');
+  const bmsg = document.getElementById('book-msg');
+  bmsg.className = 'msg'; bmsg.style.display = 'none';
+  btn.innerHTML  = '<span class="spinner"></span>&nbsp;Booking…';
+  btn.disabled   = true;
+
+  const d = await api('/Appointments', {
+    method: 'POST',
+    body: JSON.stringify({
+      doctorId:        document.getElementById('book-doctor').value,
+      appointmentDate: new Date(document.getElementById('book-date').value).toISOString(),
+      notes:           document.getElementById('book-notes').value || null
+    })
+  });
+
+  if (d?.success) {
+    bmsg.textContent='✅ Appointment booked!'; bmsg.className='msg success'; bmsg.style.display='flex';
+    document.getElementById('book-notes').value = '';
+    toast('Appointment booked!');
+  } else {
+    bmsg.textContent = d?.message || 'Booking failed.'; bmsg.className='msg error'; bmsg.style.display='flex';
+    toast(d?.message || 'Booking failed.', 'error');
+  }
+  btn.innerHTML = '📅 Confirm Booking'; btn.disabled = false;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 14 ▸ MEDICAL RECORDS
+//  GET  /api/v1/MedicalRecords/my
+//  POST /api/v1/MedicalRecords/upload
+//  GET  /api/v1/MedicalRecords/{id}/download
+// ══════════════════════════════════════════════════════════════════════
+async function loadRecords() {
+  const tb = document.getElementById('records-body');
+  if (!tb) return;
+  tb.innerHTML = `<tr><td colspan="5" class="empty">Loading…</td></tr>`;
+  const d = await api('/MedicalRecords/my');
+  if (!d?.data?.length) {
+    tb.innerHTML = `<tr><td colspan="5" class="empty"><span class="empty-icon">📄</span><p>No records uploaded yet.</p></td></tr>`;
+    return;
+  }
+  tb.innerHTML = d.data.map(r => `
+    <tr>
+      <td><div style="font-weight:600;font-size:.88rem">${r.fileName}</div></td>
+      <td><span style="background:var(--bg3);padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600">
+        ${(r.fileType||'').toUpperCase()}</span></td>
+      <td style="color:var(--text-muted);font-size:.85rem">${r.fileSizeKB} KB</td>
+      <td style="color:var(--text-muted);font-size:.85rem">${fmtDateOnly(r.uploadedAt)}</td>
+      <td>
+        <a href="${API}/MedicalRecords/${r.id}/download"
+           class="btn-sm prim" style="text-decoration:none" target="_blank">⬇ Download</a>
+      </td>
+    </tr>`).join('');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag');
+  if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+}
+
+async function uploadFile(file) {
+  if (!file) return;
+  if (file.size > 10*1024*1024) { toast('File exceeds 10 MB limit.','error'); return; }
+
+  const umsg = document.getElementById('upload-msg');
+  umsg.textContent = `📎 Uploading ${file.name}…`; umsg.className='msg info'; umsg.style.display='flex';
+
+  const pw = document.getElementById('upload-progress-wrap');
+  const pb = document.getElementById('upload-progress');
+  pw.style.display = 'block'; let prog = 0;
+  const tick = setInterval(() => { prog = Math.min(prog+10,85); pb.style.width=prog+'%'; },120);
+
+  const form = new FormData();
+  form.append('file', file);
+  const d = await api('/MedicalRecords/upload', { method:'POST', body:form, headers:{} });
+
+  clearInterval(tick); pb.style.width='100%';
+  setTimeout(()=>{ pw.style.display='none'; pb.style.width='0%'; },600);
+
+  if (d?.success) {
+    umsg.textContent='✅ Uploaded!'; umsg.className='msg success';
+    toast('File uploaded!'); loadRecords();
+  } else {
+    umsg.textContent=d?.message||'Upload failed.'; umsg.className='msg error';
+    toast(d?.message||'Upload failed.','error');
+  }
+  document.getElementById('file-input').value = '';
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 15 ▸ CREATE DOCTOR  (Admin only)
+//  POST /api/v1/Doctors
+// ══════════════════════════════════════════════════════════════════════
+async function createDoctor(e) {
+  e.preventDefault();
+  const btn  = document.getElementById('d-btn');
+  const mmsg = document.getElementById('modal-doctor-msg');
+  mmsg.className='msg'; mmsg.style.display='none';
+  btn.innerHTML='<span class="spinner"></span>&nbsp;Creating…'; btn.disabled=true;
+
+  const d = await api('/Doctors', {
+    method:'POST',
+    body: JSON.stringify({
+      fullName:       document.getElementById('d-name').value.trim(),
+      email:          document.getElementById('d-email').value.trim(),
+      phoneNumber:    document.getElementById('d-phone').value.trim(),
+      password:       document.getElementById('d-pass').value,
+      specialization: document.getElementById('d-spec').value.trim(),
+      bio:            document.getElementById('d-bio').value.trim()||null
+    })
+  });
+
+  if (d?.success) {
+    toast('👨‍⚕️ Doctor created!');
+    closeModal('modal-create-doctor');
+    ['d-name','d-email','d-phone','d-pass','d-spec','d-bio'].forEach(id=>document.getElementById(id).value='');
+    if (document.getElementById('sec-doctors')?.classList.contains('active')) loadDoctors();
+    // Refresh stat
+    document.getElementById('stat-docs').textContent = '↻';
+    loadOverview();
+  } else {
+    mmsg.textContent=d?.message||'Failed to create doctor.'; mmsg.className='msg error'; mmsg.style.display='flex';
+  }
+  btn.innerHTML='Create Doctor'; btn.disabled=false;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  SECTION 16 ▸ UTILITY HELPERS
+// ══════════════════════════════════════════════════════════════════════
+
+// Format date + time
+function fmtDate(iso) {
+  return new Date(iso).toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+// Format date only
+function fmtDateOnly(iso) {
+  return new Date(iso).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+}
+// Time-of-day greeting
+function timeGreeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
+}
+// Returns a human-friendly first name — skips honorifics like "Dr.", "Mr.", "Ms."
+function firstName() {
+  const honorifics = ['dr.', 'mr.', 'mrs.', 'ms.', 'prof.', 'sir'];
+  const parts = (user?.fullName || 'there').trim().split(/\s+/);
+  // Skip any leading honorific tokens
+  const name = parts.find(p => !honorifics.includes(p.toLowerCase()));
+  return name || parts[0] || 'there';
+}
+
+// Inject active filter style
+const s = document.createElement('style');
+s.textContent = `.active-filter{background:var(--primary)!important;color:#fff!important;border-color:var(--primary)!important}`;
+document.head.appendChild(s);
+
+// ══════════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════════
+populateUserInfo();
+buildNav();
+buildSections();
+loadOverview();
+</script>
+</body>
+</html>
