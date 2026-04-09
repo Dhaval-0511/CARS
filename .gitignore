@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+logs/
+wwwroot/uploads/
+appsettings.Development.json
+*.user
+.DS_Store
