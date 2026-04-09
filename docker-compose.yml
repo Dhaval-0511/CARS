@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # 1. SQL Server Database
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=SuperStrongPassword123!
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+
+  # 2. Redis Cache
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+
+  # 3. Backend System and Frontend UI
+  cars-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    environment:
+      # Inject the connection string to point to the sqlserver docker container
+      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=CarsDB;User=sa;Password=SuperStrongPassword123!;TrustServerCertificate=true;MultipleActiveResultSets=true;
+      # Enable Redis running on the redis container
+      - Redis__Enabled=true
+      - Redis__ConnectionString=redis:6379
+    depends_on:
+      - sqlserver
+      - redis
+    volumes:
+      # Mount physical hard drive so uploaded files persist across container restarts
+      - uploads_data:/app/wwwroot/uploads
+
+volumes:
+  sql_data:
+  uploads_data:
